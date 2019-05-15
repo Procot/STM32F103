@@ -10,7 +10,14 @@
 #include "buzer/buzer.h"
 #include "led/led.h"
 
-QueueHandle_t keyboardQueue, lcdQueue, buzzerQueue;
+
+uint16_t ACCESS = 0;
+
+char pin[] = {'4', '5', '2', '9'};
+char entered[4];
+uint16_t PIN_POINTER=0;
+
+QueueHandle_t keyboardQueue, lcdQueue, buzzerQueue, defenderQueue;
 uint8_t queueSize = 10;
 
 void taskLCD(void *params);
@@ -18,6 +25,7 @@ void taskKeyBoard(void *params);
 void taskLEDS(void *params);
 void taskBuzzer(void *params);
 void taskSwitch(void *params);
+void taskDefender(void *params);
 
 int main(void)
 {
@@ -29,7 +37,9 @@ int main(void)
 	keyboardQueue = xQueueCreate(queueSize, sizeof(unsigned char));
 	lcdQueue = xQueueCreate(queueSize, sizeof(unsigned char));
 	buzzerQueue = xQueueCreate(queueSize, sizeof(unsigned char));
+	defenderQueue = xQueueCreate(queueSize, sizeof(unsigned char));
 	
+	xTaskCreate(taskDefender, "taskDefender", configMINIMAL_STACK_SIZE, NULL, 2, NULL);
 	xTaskCreate(taskLCD, "taskLCD", configMINIMAL_STACK_SIZE, NULL, 2, NULL);
 	xTaskCreate(taskKeyBoard, "taskKeyBoard", configMINIMAL_STACK_SIZE, NULL, 2, NULL);
 	xTaskCreate(taskLEDS, "taskLEDS", configMINIMAL_STACK_SIZE, NULL, 2, NULL);
@@ -40,6 +50,57 @@ int main(void)
 	while(1);
 }
 
+void taskDefender(void *params)
+{
+	unsigned char c;
+	while(1)
+	{
+		xQueueReceive(defenderQueue, &c, portMAX_DELAY);
+		if((c=='1' || c=='2' || c=='3' || c=='4' || c=='5' || c=='6' || c=='7' || c=='8' || c=='9') && PIN_POINTER<4)
+		{
+			entered[PIN_POINTER] = c;
+			PIN_POINTER++;
+		}
+		if(PIN_POINTER==4)
+		{
+			if(pin[0] == entered[0] && pin[1] == entered[1] && pin[2]==entered[2] && pin[3]==entered[3])
+			{
+				lcd_clear();
+				lcd_cursor_on_begin();		
+				vTaskDelay(800 / portTICK_PERIOD_MS);
+				char hello[] = "Hello! I`m not blocked now!";
+				for(int i=0; i<27; i++){
+					if(i==7) lcd_send_enter();
+					lcd_send_char(hello[i]);
+					vTaskDelay(100 / portTICK_PERIOD_MS);
+				}
+				vTaskDelay(2000 / portTICK_PERIOD_MS);
+				lcd_clear();
+				lcd_cursor_on_begin();
+				vTaskDelete(NULL);
+			}
+			else {						
+				c='B';
+				
+				lcd_clear();
+				lcd_cursor_on_begin();
+				vTaskDelay(800 / portTICK_PERIOD_MS);	
+				xQueueSend(buzzerQueue, &c, portMAX_DELAY);
+				char hello[] = "Wrong pin!";
+				for(int i=0; i<10; i++){
+					lcd_send_char(hello[i]);
+					vTaskDelay(100 / portTICK_PERIOD_MS);
+				}
+				vTaskDelay(1000 / portTICK_PERIOD_MS);
+				PIN_POINTER=0;
+				lcd_clear();
+				lcd_cursor_on_begin();
+				xQueueSend(buzzerQueue, &c, portMAX_DELAY);
+			}
+		}
+	}
+}
+
 void taskLCD(void *params)
 {
 	uint16_t SYMBOL_COUNTER = 0;
@@ -47,7 +108,7 @@ void taskLCD(void *params)
 
 	while(1)
 	{
-		xQueueReceive(lcdQueue, &c, portMAX_DELAY);
+		xQueueReceive(lcdQueue, &c, portMAX_DELAY);			
 		if (SYMBOL_COUNTER == 32)
 		{
 			lcd_clear();
@@ -58,7 +119,7 @@ void taskLCD(void *params)
 		lcd_send_char(c);
 		if(++SYMBOL_COUNTER == 16) {
 			lcd_send_enter();
-		}
+		}		
 	}
 }
 
@@ -127,11 +188,12 @@ void taskSwitch(void *params)
 	
 	while(1)
 	{
-		xQueueReceive(keyboardQueue, &c, portMAX_DELAY);
+		xQueueReceive(keyboardQueue, &c, portMAX_DELAY);		
+		xQueueSend(defenderQueue, &c, portMAX_DELAY);
 		xQueueSend(lcdQueue, &c, portMAX_DELAY);
-		if (c == 'B')
-		{
-			xQueueSend(buzzerQueue, &c, portMAX_DELAY);
-		}
+//		if (c == 'B')
+//		{
+//			xQueueSend(buzzerQueue, &c, portMAX_DELAY);
+//		}
 	}
 }
